@@ -1,0 +1,287 @@
+{
+	"name": "snippet-composer",
+	"displayName": "Snippet Composer",
+	"description": "Modular, Multi-File Snippet Management for VSCode",
+	"version": "1.1.0",
+	"publisher": "Phantasm",
+	"icon": "media/icon.png",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Phantasm0009/snippet-composer"
+	},
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.70.0"
+	},
+	"categories": [
+		"Snippets",
+		"Other"
+	],
+	"keywords": [
+		"snippet",
+		"snippets",
+		"code-generator",
+		"template",
+		"boilerplate",
+		"productivity",
+		"file-generator",
+		"multi-file",
+		"react",
+		"typescript",
+		"javascript",
+		"node",
+		"express",
+		"html",
+		"css",
+		"component",
+		"code-management",
+		"variables",
+		"organize",
+		"folder",
+		"time-saving",
+		"developer-tools"
+	],
+	"activationEvents": [
+		"onCommand:snippet-composer.openSnippetEditor",
+		"onCommand:snippet-composer.insertSnippet",
+		"onView:snippetComposerExplorer"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "snippet-composer.openSnippetEditor",
+				"title": "Snippet Composer: Open Snippet Editor"
+			},
+			{
+				"command": "snippet-composer.insertSnippet",
+				"title": "Snippet Composer: Insert Snippet"
+			},
+			{
+				"command": "snippet-composer.insertSnippetHere",
+				"title": "Insert Snippet Here",
+				"icon": "$(code)"
+			},
+			{
+				"command": "snippet-composer.createSnippet",
+				"title": "Snippet Composer: Create New Snippet",
+				"icon": "$(add)"
+			},
+			{
+				"command": "snippet-composer.createFolder",
+				"title": "Snippet Composer: Create Folder",
+				"icon": "$(new-folder)"
+			},
+			{
+				"command": "snippet-composer.exportSnippets",
+				"title": "Snippet Composer: Export Snippets",
+				"icon": "$(export)"
+			},
+			{
+				"command": "snippet-composer.importSnippets",
+				"title": "Snippet Composer: Import Snippets",
+				"icon": "$(import)"
+			},
+			{
+				"command": "snippet-composer.editSnippet",
+				"title": "Snippet Composer: Edit Snippet",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "snippet-composer._editSnippetFromContextMenu",
+				"title": "Edit Snippet",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "snippet-composer.deleteFolder",
+				"title": "Delete Folder",
+				"icon": "$(trash)"
+			},
+			{
+				"command": "snippet-composer.renameFolder",
+				"title": "Rename Folder",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "snippet-composer.duplicateSnippet",
+				"title": "Duplicate Snippet",
+				"icon": "$(copy)"
+			},
+			{
+				"command": "snippet-composer.exportSingleSnippet",
+				"title": "Export Snippet...",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "snippet-composer.searchSnippets",
+				"title": "Search Snippets",
+				"icon": "$(search)"
+			},
+			{
+				"command": "snippet-composer.syncUpload",
+				"title": "Upload Snippets to GitHub Gist",
+				"icon": "$(cloud-upload)"
+			},
+			{
+				"command": "snippet-composer.syncDownload",
+				"title": "Download Snippets from GitHub Gist",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "snippet-composer.openSettings",
+				"title": "Snippet Composer: Settings",
+				"icon": "$(gear)"
+			}
+		],
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "snippet-composer",
+					"title": "Snippet Composer",
+					"icon": "media/icon.svg"
+				}
+			]
+		},
+		"views": {
+			"snippet-composer": [
+				{
+					"id": "snippetComposerExplorer",
+					"name": "Snippets Explorer",
+					"dragAndDropController": true
+				}
+			]
+		},
+		"menus": {
+			"view/title": [
+				{
+					"command": "snippet-composer.createSnippet",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@1"
+				},
+				{
+					"command": "snippet-composer.createFolder",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@2"
+				},
+				{
+					"command": "snippet-composer.searchSnippets",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@3"
+				},
+				{
+					"command": "snippet-composer.importSnippets",
+					"when": "view == snippetComposerExplorer",
+					"group": "2_import@1"
+				},
+				{
+					"command": "snippet-composer.exportSnippets",
+					"when": "view == snippetComposerExplorer",
+					"group": "2_import@2"
+				},
+				{
+					"command": "snippet-composer.syncUpload",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@4"
+				},
+				{
+					"command": "snippet-composer.syncDownload",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@5"
+				},
+				{
+					"command": "snippet-composer.openSettings",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@6"
+				}
+			],
+			"view/item/context": [
+				{
+					"command": "snippet-composer._editSnippetFromContextMenu",
+					"when": "viewItem == snippet",
+					"group": "inline@1"
+				},
+				{
+					"command": "snippet-composer.insertSnippet",
+					"when": "viewItem == snippet",
+					"group": "1_modification@1"
+				},
+				{
+					"command": "snippet-composer.duplicateSnippet",
+					"when": "viewItem == snippet",
+					"group": "1_modification@2"
+				},
+				{
+					"command": "snippet-composer.exportSingleSnippet",
+					"when": "viewItem == snippet",
+					"group": "1_modification@3"
+				},
+				{
+					"command": "snippet-composer.deleteFolder",
+					"when": "viewItem == folder",
+					"group": "2_modification@1"
+				},
+				{
+					"command": "snippet-composer.renameFolder",
+					"when": "viewItem == folder",
+					"group": "2_modification@2"
+				}
+			],
+			"explorer/context": [
+				{
+					"command": "snippet-composer.insertSnippetHere",
+					"when": "explorerResourceIsFolder",
+					"group": "7_modification"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Snippet Composer",
+			"properties": {
+				"snippetComposer.storage.location": {
+					"type": "string",
+					"default": "local",
+					"enum": [
+						"local",
+						"cloud"
+					],
+					"enumDescriptions": [
+						"Store snippets locally",
+						"Store snippets in the cloud (uses GitHub Gist)"
+					],
+					"description": "Where to store snippets"
+				},
+				"snippetComposer.author": {
+					"type": "string",
+					"default": "",
+					"description": "Default author name for snippets"
+				},
+				"snippetComposer.gist.id": {
+					"type": "string",
+					"default": "",
+					"description": "GitHub Gist ID for cloud sync (automatically set after first upload)"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./",
+		"lint": "eslint . --ext .ts,.tsx"
+	},
+	"devDependencies": {
+		"@types/node": "^16.11.7",
+		"@types/react": "^18.0.0",
+		"@types/react-dom": "^18.0.0",
+		"@types/vscode": "^1.70.0",
+		"@typescript-eslint/eslint-plugin": "^5.30.0",
+		"@typescript-eslint/parser": "^5.30.0",
+		"eslint": "^8.13.0",
+		"typescript": "^4.7.2"
+	},
+	"dependencies": {
+		"monaco-editor": "^0.52.2",
+		"react": "^18.2.0",
+		"react-dom": "^18.2.0"
+	}
+}
