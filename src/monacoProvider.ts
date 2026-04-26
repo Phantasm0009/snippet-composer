@@ -9,13 +9,13 @@ export class MonacoProvider {
     /**
      * Creates the necessary URIs for loading Monaco editor in a webview
      */
-    public static getMonacoResourceUris(context: vscode.ExtensionContext, webview: vscode.Webview): {
+    public static getMonacoResourceUris(_context: vscode.ExtensionContext, webview: vscode.Webview): {
         baseUri: vscode.Uri,
         monacoUri: vscode.Uri,
         loaderUri: vscode.Uri,
         editorWorkerUri: vscode.Uri
     } {
-        const baseUri = this.getMonacoDirUri(context, webview);
+        const baseUri = this.getMonacoDirUri(_context);
         
         return {
             baseUri,
@@ -34,47 +34,52 @@ export class MonacoProvider {
     /**
      * Copies Monaco editor files from node_modules to the extension's global storage path
      */
-    public static ensureMonacoFilesPresent(context: vscode.ExtensionContext): vscode.Uri {
+    public static async ensureMonacoFilesPresent(context: vscode.ExtensionContext): Promise<vscode.Uri> {
         const monacoDir = path.join(context.globalStoragePath, 'monaco-editor');
-        const monacoSrcDir = path.join(context.extensionPath, 'node_modules', 'monaco-editor');
+        const monacoSrcDir = path.join(context.extensionPath, 'node_modules', 'monaco-editor', 'min');
         
         // If Monaco files are already copied, just return the path
-        if (fs.existsSync(monacoDir)) {
+        if (await this.pathExists(monacoDir)) {
             return vscode.Uri.file(monacoDir);
         }
 
         // Create directory if it doesn't exist
-        if (!fs.existsSync(context.globalStoragePath)) {
-            fs.mkdirSync(context.globalStoragePath, { recursive: true });
+        if (!(await this.pathExists(context.globalStoragePath))) {
+            await fs.promises.mkdir(context.globalStoragePath, { recursive: true });
         }
         
-        // Copy Monaco editor files
-        this.copyFolderSync(monacoSrcDir, monacoDir);
+        // Copy only Monaco "min" files to reduce startup and disk usage
+        await this.copyFolder(monacoSrcDir, path.join(monacoDir, 'min'));
         
         return vscode.Uri.file(monacoDir);
     }
 
-    private static getMonacoDirUri(context: vscode.ExtensionContext, webview: vscode.Webview): vscode.Uri {
-        const monacoDir = this.ensureMonacoFilesPresent(context);
-        return monacoDir;
+    private static getMonacoDirUri(context: vscode.ExtensionContext): vscode.Uri {
+        return vscode.Uri.file(path.join(context.globalStoragePath, 'monaco-editor'));
     }
 
-    private static copyFolderSync(src: string, dest: string) {
-        if (!fs.existsSync(dest)) {
-            fs.mkdirSync(dest, { recursive: true });
+    private static async pathExists(pathToCheck: string): Promise<boolean> {
+        try {
+            await fs.promises.access(pathToCheck);
+            return true;
+        } catch {
+            return false;
         }
-        
-        const files = fs.readdirSync(src);
-        
+    }
+
+    private static async copyFolder(src: string, dest: string): Promise<void> {
+        await fs.promises.mkdir(dest, { recursive: true });
+        const files = await fs.promises.readdir(src);
+
         for (const file of files) {
             const srcPath = path.join(src, file);
             const destPath = path.join(dest, file);
-            const stats = fs.statSync(srcPath);
+            const stats = await fs.promises.stat(srcPath);
             
             if (stats.isDirectory()) {
-                this.copyFolderSync(srcPath, destPath);
+                await this.copyFolder(srcPath, destPath);
             } else {
-                fs.copyFileSync(srcPath, destPath);
+                await fs.promises.copyFile(srcPath, destPath);
             }
         }
     }

@@ -170,7 +170,7 @@ In the Extension Development Host window:
 - Press `Ctrl+R` (Windows/Linux) or `Cmd+R` (Mac)
 - Or run command: **Developer: Reload Window**
 
-## Running Tests (if available)
+## Running Tests
 
 ```bash
 npm test

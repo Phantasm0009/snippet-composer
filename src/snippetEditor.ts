@@ -35,7 +35,7 @@ export class SnippetEditorProvider {
         cancellable: false
       }, async (progress) => {
         // Prepare Monaco files
-        await Promise.resolve(MonacoProvider.ensureMonacoFilesPresent(this.context));
+        await MonacoProvider.ensureMonacoFilesPresent(this.context);
         
         progress.report({ increment: 50, message: "Preparing editor..." });
         
@@ -242,20 +242,9 @@ export class SnippetEditorProvider {
       ? 'vs' 
       : 'vs-dark';
     
-    // Add edit mode styling
-    const isEditMode = !!snippet;
-    const editModeStyles = isEditMode ? `
-      .edit-badge {
-        background-color: var(--vscode-statusBarItem-remoteBackground);
-        color: var(--vscode-statusBarItem-remoteForeground);
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 500;
-        margin-left: 10px;
-        vertical-align: middle;
-      }
-    ` : '';
+    const editorStylesUri = this.currentPanel.webview.asWebviewUri(
+      vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'snippetEditor.css'))
+    );
 
     // Create script content separately
     const previewVariableScript = `
@@ -383,6 +372,31 @@ export class SnippetEditorProvider {
                     match.replace(/[\\s_-]/g, '').toUpperCase()
                   )
                   .replace(/[\\s_-]+/g, '');
+              case 'titlecase':
+                return value
+                  .replace(/[_-]+/g, ' ')
+                  .replace(/\\s+/g, ' ')
+                  .trim()
+                  .replace(/\\b\\w/g, (char) => char.toUpperCase());
+              case 'dotcase':
+                return value
+                  .replace(/([a-z])([A-Z])/g, '$1.$2')
+                  .replace(/[\\s_-]+/g, '.')
+                  .toLowerCase();
+              case 'pathcase':
+                return value
+                  .replace(/([a-z])([A-Z])/g, '$1/$2')
+                  .replace(/[._\\s-]+/g, '/')
+                  .toLowerCase();
+              case 'pluralize':
+                if (value.endsWith('y') && !/[aeiou]y$/i.test(value)) return value.slice(0, -1) + 'ies';
+                if (/(s|x|z|ch|sh)$/i.test(value)) return value + 'es';
+                return value + 's';
+              case 'singularize':
+                if (/ies$/i.test(value)) return value.slice(0, -3) + 'y';
+                if (/(ses|xes|zes|ches|shes)$/i.test(value)) return value.slice(0, -2);
+                if (/s$/i.test(value) && value.length > 1) return value.slice(0, -1);
+                return value;
               default:
                 return value;
             }
@@ -391,7 +405,11 @@ export class SnippetEditorProvider {
           return value;
         };
         
-        // Process replacements
+        // Process conditional blocks and replacements
+        const conditionalRegex = /\\{\\{#if\\s+([^{}]+)\\}\\}([\\s\\S]*?)\\{\\{\\/if\\}\\}/g;
+        filePath = filePath.replace(conditionalRegex, (match, varName, content) => variables[varName?.trim()] ? content : '');
+        fileName = fileName.replace(conditionalRegex, (match, varName, content) => variables[varName?.trim()] ? content : '');
+        content = content.replace(conditionalRegex, (match, varName, content) => variables[varName?.trim()] ? content : '');
         filePath = filePath.replace(regex, (match, varName, transform) => 
           processTransformation(match, varName, transform));
         fileName = fileName.replace(regex, (match, varName, transform) => 
@@ -477,6 +495,31 @@ export class SnippetEditorProvider {
                         match.replace(/[\\s_-]/g, '').toUpperCase()
                       )
                       .replace(/[\\s_-]+/g, '');
+                  case 'titlecase':
+                    return value
+                      .replace(/[_-]+/g, ' ')
+                      .replace(/\\s+/g, ' ')
+                      .trim()
+                      .replace(/\\b\\w/g, (char) => char.toUpperCase());
+                  case 'dotcase':
+                    return value
+                      .replace(/([a-z])([A-Z])/g, '$1.$2')
+                      .replace(/[\\s_-]+/g, '.')
+                      .toLowerCase();
+                  case 'pathcase':
+                    return value
+                      .replace(/([a-z])([A-Z])/g, '$1/$2')
+                      .replace(/[._\\s-]+/g, '/')
+                      .toLowerCase();
+                  case 'pluralize':
+                    if (value.endsWith('y') && !/[aeiou]y$/i.test(value)) return value.slice(0, -1) + 'ies';
+                    if (/(s|x|z|ch|sh)$/i.test(value)) return value + 'es';
+                    return value + 's';
+                  case 'singularize':
+                    if (/ies$/i.test(value)) return value.slice(0, -3) + 'y';
+                    if (/(ses|xes|zes|ches|shes)$/i.test(value)) return value.slice(0, -2);
+                    if (/s$/i.test(value) && value.length > 1) return value.slice(0, -1);
+                    return value;
                   default:
                     return value;
                 }
@@ -688,397 +731,7 @@ export class SnippetEditorProvider {
         var require = { paths: { vs: '${monacoResources.monacoUri.toString()}' } };
       </script>
       <script src="${monacoResources.loaderUri.toString()}"></script>
-      <style>
-        :root {
-          --border-radius: 6px;
-          --transition-speed: 0.2s;
-          --primary-color: var(--vscode-button-background);
-          --primary-hover-color: var(--vscode-button-hoverBackground);
-          --error-color: var(--vscode-errorForeground);
-          --card-background: var(--vscode-editor-background);
-          --border-color: var(--vscode-panel-border);
-          --header-color: var(--vscode-panelTitle-activeForeground);
-          --section-spacing: 24px;
-        }
-        
-        body {
-          font-family: var(--vscode-font-family);
-          padding: 20px;
-          color: var(--vscode-foreground);
-          max-width: 1000px;
-          margin: 0 auto;
-          line-height: 1.5;
-        }
-        
-        h1 {
-          margin-bottom: 24px;
-          font-size: 24px;
-          border-bottom: 1px solid var(--border-color);
-          padding-bottom: 12px;
-          color: var(--header-color);
-        }
-        
-        ${editModeStyles}
-        
-        .form-group {
-          margin-bottom: 16px;
-        }
-        
-        label {
-          display: block;
-          margin-bottom: 6px;
-          font-weight: 500;
-        }
-        
-        .help-text {
-          font-size: 12px;
-          opacity: 0.8;
-          margin-top: 4px;
-        }
-
-        input, textarea, select {
-          width: 100%;
-          padding: 8px 12px;
-          box-sizing: border-box;
-          background-color: var(--vscode-input-background);
-          color: var(--vscode-input-foreground);
-          border: 1px solid var(--vscode-input-border);
-          border-radius: var(--border-radius);
-          transition: border-color var(--transition-speed);
-        }
-        
-        input:focus, textarea:focus, select:focus {
-          border-color: var(--vscode-focusBorder);
-          outline: none;
-          box-shadow: 0 0 0 2px rgba(0,122,204,0.2);
-        }
-        
-        .tabs {
-          display: flex;
-          border-bottom: 1px solid var(--border-color);
-          margin-bottom: var(--section-spacing);
-          gap: 5px;
-        }
-        
-        .tab {
-          padding: 10px 16px;
-          cursor: pointer;
-          border-radius: var(--border-radius) var(--border-radius) 0 0;
-          border: 1px solid transparent;
-          transition: all var(--transition-speed);
-          user-select: none;
-          position: relative;
-        }
-        
-        .tab:hover {
-          background-color: var(--vscode-list-hoverBackground);
-        }
-        
-        .tab.active {
-          background-color: var(--card-background);
-          border: 1px solid var(--border-color);
-          border-bottom-color: var(--card-background);
-          position: relative;
-          top: 1px;
-          font-weight: 500;
-        }
-        
-        .tab-content {
-          display: none;
-          padding: var(--section-spacing) 0;
-        }
-        
-        .tab-content.active {
-          display: block;
-          animation: fadeIn 0.3s ease-in-out;
-        }
-        
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        
-        .card {
-          background-color: var(--card-background);
-          border: 1px solid var(--border-color);
-          border-radius: var(--border-radius);
-          padding: 16px;
-          margin-bottom: var(--section-spacing);
-        }
-        
-        .file-item {
-          border: 1px solid var(--border-color);
-          padding: 16px;
-          margin-bottom: 16px;
-          border-radius: var(--border-radius);
-          background-color: var(--card-background);
-        }
-        
-        .file-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-          border-bottom: 1px solid var(--border-color);
-          padding-bottom: 8px;
-        }
-        
-        .file-title {
-          font-weight: bold;
-          font-size: 15px;
-          display: flex;
-          align-items: center;
-        }
-        
-        .drag-handle {
-          cursor: grab;
-          margin-right: 10px;
-          padding: 0 8px;
-          color: var(--vscode-disabledForeground);
-        }
-        
-        .file-item.dragging {
-          opacity: 0.5;
-          box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        }
-        
-        button {
-          background-color: var(--primary-color);
-          color: var(--vscode-button-foreground);
-          border: none;
-          padding: 8px 14px;
-          cursor: pointer;
-          margin-right: 10px;
-          border-radius: var(--border-radius);
-          transition: background-color var(--transition-speed);
-          font-weight: 500;
-        }
-        
-        button:hover {
-          background-color: var(--primary-hover-color);
-        }
-        
-        .secondary-button {
-          background-color: transparent;
-          border: 1px solid var(--primary-color);
-          color: var(--primary-color);
-        }
-        
-        .secondary-button:hover {
-          background-color: rgba(0,122,204,0.1);
-        }
-        
-        .delete-btn {
-          background-color: var(--error-color);
-        }
-        
-        .delete-btn:hover {
-          opacity: 0.8;
-        }
-        
-        .tag-container {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-          margin-top: 8px;
-        }
-        
-        .tag {
-          background-color: var(--vscode-badge-background);
-          color: var(--vscode-badge-foreground);
-          padding: 4px 8px;
-          border-radius: 20px;
-          display: flex;
-          align-items: center;
-          font-size: 12px;
-        }
-        
-        .tag button {
-          background: none;
-          border: none;
-          margin-left: 5px;
-          cursor: pointer;
-          color: var(--vscode-badge-foreground);
-          padding: 0 4px;
-          margin-right: 0;
-          font-weight: bold;
-        }
-        
-        .editor-container {
-          margin-top: 10px;
-          border: 1px solid var(--border-color);
-          border-radius: var(--border-radius);
-          overflow: hidden;
-          height: 300px;
-        }
-        
-        .variable-list {
-          margin-top: 20px;
-        }
-        
-        .variable-item {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 12px;
-          align-items: center;
-          background-color: var(--card-background);
-          padding: 10px;
-          border-radius: var(--border-radius);
-          border: 1px solid var(--border-color);
-        }
-        
-        .variable-item input {
-          flex: 1;
-        }
-        
-        .info-box {
-          background-color: rgba(0,122,204,0.1);
-          border-left: 4px solid var(--primary-color);
-          padding: 12px;
-          margin-bottom: var(--section-spacing);
-          border-radius: var(--border-radius);
-        }
-        
-        .actions-bar {
-          margin-top: var(--section-spacing);
-          display: flex;
-          justify-content: space-between;
-        }
-        
-        .loading {
-          display: none;
-          text-align: center;
-          padding: var(--section-spacing);
-        }
-        
-        .loading.active {
-          display: block;
-        }
-        
-        .spinner {
-          border: 3px solid rgba(0,0,0,0.1);
-          border-top: 3px solid var(--primary-color);
-          border-radius: 50%;
-          width: 20px;
-          height: 20px;
-          animation: spin 1s linear infinite;
-          margin: 0 auto;
-        }
-        
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        
-        .section-header {
-          font-weight: 500;
-          margin-bottom: 16px;
-          color: var(--header-color);
-        }
-        
-        .file-path-section {
-          display: flex;
-          gap: 10px;
-        }
-        
-        .file-path-section input:first-child {
-          flex: 3;
-        }
-        
-        .file-path-section input:last-child {
-          flex: 1;
-        }
-        
-        .fallback-editor {
-          font-family: monospace;
-          min-height: 300px;
-          resize: vertical;
-        }
-
-        .header-wrapper {
-          margin-bottom: 20px;
-        }
-
-        .edit-info {
-          display: flex;
-          gap: 16px;
-          margin-top: -16px;
-          margin-bottom: 16px;
-          font-size: 12px;
-          color: var(--vscode-descriptionForeground);
-        }
-
-        .edit-info-item .label {
-          font-weight: 500;
-        }
-
-        .edit-badge {
-          background-color: var(--vscode-statusBarItem-remoteBackground);
-          color: var(--vscode-statusBarItem-remoteForeground);
-          padding: 3px 6px;
-          border-radius: 4px;
-          font-size: 11px;
-          font-weight: 600;
-          margin-left: 8px;
-          vertical-align: middle;
-        }
-        
-        /* Preview specific styles */
-        .preview-file {
-          margin-bottom: 24px;
-          border: 1px solid var(--border-color);
-          border-radius: var(--border-radius);
-          overflow: hidden;
-        }
-        
-        .preview-file-header {
-          padding: 10px 16px;
-          background-color: var(--vscode-panel-background);
-          border-bottom: 1px solid var(--border-color);
-          display: flex;
-          justify-content: space-between;
-        }
-        
-        .preview-file-path {
-          opacity: 0.7;
-          font-size: 12px;
-          margin-top: 3px;
-        }
-        
-        .preview-editor-container {
-          height: 250px;
-          border-radius: 0;
-        }
-        
-        .preview-empty {
-          padding: 40px;
-          text-align: center;
-          color: var(--vscode-disabledForeground);
-        }
-        
-        .preview-variables {
-          margin-bottom: 20px;
-          padding: 12px;
-          background-color: var(--vscode-editor-background);
-          border: 1px solid var(--border-color);
-          border-radius: var(--border-radius);
-        }
-        
-        .preview-variable-item {
-          display: flex;
-          justify-content: space-between;
-          padding: 6px 0;
-          border-bottom: 1px solid var(--border-color);
-        }
-        
-        .preview-variable-item:last-child {
-          border-bottom: none;
-        }
-        
-        .preview-variable-name {
-          font-weight: bold;
-        }
-      </style>
+      <link rel="stylesheet" href="${editorStylesUri}">
     </head>
     <body>
       <div class="header-wrapper">
@@ -1322,31 +975,52 @@ export class SnippetEditorProvider {
         
         // Setup drag and drop functionality for files
         function setupDragAndDrop() {
-          const fileList = document.getElementById('fileList');
-          if (!fileList) return;
-          
-          // Make file items draggable
           document.querySelectorAll('.file-item').forEach(item => {
             item.setAttribute('draggable', 'true');
-            
+            item.removeEventListener('dragstart', handleDragStart);
+            item.removeEventListener('dragend', handleDragEnd);
+            item.removeEventListener('dragover', handleDragOver);
+            item.removeEventListener('drop', handleDrop);
+            item.removeEventListener('dragleave', handleDragLeave);
             item.addEventListener('dragstart', handleDragStart);
             item.addEventListener('dragend', handleDragEnd);
             item.addEventListener('dragover', handleDragOver);
             item.addEventListener('drop', handleDrop);
             item.addEventListener('dragleave', handleDragLeave);
           });
+          refreshFileMetadata();
         }
         
         let draggedItem = null;
         
+        function refreshFileMetadata() {
+          document.querySelectorAll('.file-item').forEach((item, newIndex) => {
+            item.setAttribute('data-index', String(newIndex));
+            const titleSpan = item.querySelector('.file-title span');
+            const filenameInput = item.querySelector('.filename');
+            const removeButton = item.querySelector('.file-header .secondary-button');
+            const filename = filenameInput ? filenameInput.value || 'newfile.js' : 'newfile.js';
+            
+            if (titleSpan) {
+              titleSpan.innerHTML = \`File \${newIndex + 1}: <span class="filename-display">\${filename}</span>\`;
+            }
+            
+            if (removeButton) {
+              removeButton.setAttribute('onclick', \`removeFile(\${newIndex})\`);
+            }
+          });
+        }
+        
         function handleDragStart(e) {
           draggedItem = this;
           this.classList.add('dragging');
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', this.dataset.index);
+          if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', this.dataset.index || '');
+          }
         }
         
-        function handleDragEnd(e) {
+        function handleDragEnd() {
           this.classList.remove('dragging');
           document.querySelectorAll('.file-item').forEach(item => {
             item.classList.remove('drag-over');
@@ -1356,59 +1030,54 @@ export class SnippetEditorProvider {
         
         function handleDragOver(e) {
           e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'move';
+          }
           if (this !== draggedItem) {
             this.classList.add('drag-over');
           }
         }
         
-        function handleDragLeave(e) {
+        function handleDragLeave() {
           this.classList.remove('drag-over');
         }
         
         function handleDrop(e) {
           e.preventDefault();
           e.stopPropagation();
-          
           this.classList.remove('drag-over');
           
-          if (draggedItem && this !== draggedItem) {
-            const fromIndex = parseInt(draggedItem.dataset.index);
-            const toIndex = parseInt(this.dataset.index);
-            
-            // Reorder in DOM
-            const fileList = document.getElementById('fileList');
-            const items = Array.from(fileList.querySelectorAll('.file-item'));
-            
-            // Remove dragged item and insert at new position
-            if (fromIndex < toIndex) {
-              this.parentNode.insertBefore(draggedItem, this.nextSibling);
-            } else {
-              this.parentNode.insertBefore(draggedItem, this);
-            }
-            
-            // Reindex all items
-            document.querySelectorAll('.file-item').forEach((item, newIndex) => {
-              item.dataset.index = newIndex;
-              const titleSpan = item.querySelector('.file-title span');
-              const filenameDisplay = item.querySelector('.filename-display');
-              if (titleSpan && filenameDisplay) {
-                const filename = filenameDisplay.textContent;
-                titleSpan.innerHTML = \`File \${newIndex + 1}: <span class="filename-display">\${filename}</span>\`;
-              }
-            });
-            
-            // Rebuild Monaco editors array to match new order
-            const newEditors = [];
-            document.querySelectorAll('.file-item').forEach((item, newIndex) => {
-              const oldIndex = items.indexOf(item);
-              if (monacoEditors[oldIndex]) {
-                newEditors[newIndex] = monacoEditors[oldIndex];
-              }
-            });
-            monacoEditors = newEditors;
+          if (!draggedItem || this === draggedItem) {
+            return;
           }
+          
+          const fileList = document.getElementById('fileList');
+          if (!fileList) {
+            return;
+          }
+          
+          const itemsBeforeMove = Array.from(fileList.querySelectorAll('.file-item'));
+          const fromIndex = parseInt(draggedItem.dataset.index || '-1', 10);
+          const toIndex = parseInt(this.dataset.index || '-1', 10);
+          if (fromIndex < 0 || toIndex < 0) {
+            return;
+          }
+          
+          if (fromIndex < toIndex) {
+            this.parentNode.insertBefore(draggedItem, this.nextSibling);
+          } else {
+            this.parentNode.insertBefore(draggedItem, this);
+          }
+          
+          const newEditors = [];
+          Array.from(fileList.querySelectorAll('.file-item')).forEach((item, newIndex) => {
+            const oldIndex = itemsBeforeMove.indexOf(item);
+            if (oldIndex !== -1 && monacoEditors[oldIndex]) {
+              newEditors[newIndex] = monacoEditors[oldIndex];
+            }
+          });
+          monacoEditors = newEditors;
+          refreshFileMetadata();
         }
         
         // Add drag-over styling
@@ -1465,6 +1134,7 @@ export class SnippetEditorProvider {
           tempDiv.innerHTML = fileItemHtml;
           const fileItem = tempDiv.firstElementChild;
           fileList.appendChild(fileItem);
+          setupDragAndDrop();
           
           // Create Monaco editor for the new file
           if (typeof monaco !== 'undefined') {
@@ -1495,18 +1165,28 @@ export class SnippetEditorProvider {
         function removeFile(index) {
           const fileItem = document.querySelector(\`.file-item[data-index="\${index}"]\`);
           if (fileItem) {
+            const fileList = document.getElementById('fileList');
+            const itemsBeforeRemove = fileList ? Array.from(fileList.querySelectorAll('.file-item')) : [];
+            
             // Dispose Monaco editor
             if (monacoEditors[index]) {
               monacoEditors[index].dispose();
-              delete monacoEditors[index];
+              monacoEditors[index] = undefined;
             }
             
             fileItem.remove();
             
-            // Update indices
+            // Rebuild Monaco editor array to match current DOM order
+            const rebuiltEditors = [];
             document.querySelectorAll('.file-item').forEach((item, newIndex) => {
-              item.setAttribute('data-index', newIndex);
+              const oldIndex = itemsBeforeRemove.indexOf(item);
+              if (oldIndex !== -1 && monacoEditors[oldIndex]) {
+                rebuiltEditors[newIndex] = monacoEditors[oldIndex];
+              }
             });
+            monacoEditors = rebuiltEditors;
+            
+            refreshFileMetadata();
           }
         }
         
@@ -1614,6 +1294,32 @@ export class SnippetEditorProvider {
             });
           });
           
+          // Auto-discover variables used in files
+          const discoverVariables = () => {
+            const variableNames = new Set();
+            const regex = /{{([^|{}]+)(?:\|[^{}]+)?}}/g;
+            
+            files.forEach(file => {
+              const fields = [file.filename, file.path, file.content];
+              fields.forEach(field => {
+                if (!field) {
+                  return;
+                }
+                
+                let match;
+                while ((match = regex.exec(field)) !== null) {
+                  const variableName = match[1]?.trim();
+                  if (variableName && variableName !== 'Date' && variableName !== 'Author') {
+                    variableNames.add(variableName);
+                  }
+                }
+                regex.lastIndex = 0;
+              });
+            });
+            
+            return variableNames;
+          };
+          
           // Collect variables
           const variables = {};
           document.querySelectorAll('.variable-item').forEach(item => {
@@ -1621,6 +1327,14 @@ export class SnippetEditorProvider {
             const value = item.querySelector('.var-value').value;
             if (name) {
               variables[name] = value;
+            }
+          });
+          
+          // Ensure all template variables used in files are present
+          const discoveredVariables = discoverVariables();
+          discoveredVariables.forEach(variableName => {
+            if (variables[variableName] === undefined) {
+              variables[variableName] = '';
             }
           });
           
@@ -1639,7 +1353,7 @@ export class SnippetEditorProvider {
           vscode.postMessage({
             command: 'saveSnippet',
             snippet: updatedSnippet,
-            isNew: isNewSnippet && !snippet?.id?.match(/^\d+$/)
+            isNew: isNewSnippet
           });
           
           // Restore button state after delay

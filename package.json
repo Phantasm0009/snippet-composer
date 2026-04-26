@@ -2,7 +2,7 @@
 	"name": "snippet-composer",
 	"displayName": "Snippet Composer",
 	"description": "Modular, Multi-File Snippet Management for VSCode",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"publisher": "Phantasm",
 	"icon": "media/icon.png",
 	"repository": {
@@ -73,6 +73,11 @@
 				"icon": "$(new-folder)"
 			},
 			{
+				"command": "snippet-composer.createSubfolder",
+				"title": "Create Subfolder",
+				"icon": "$(new-folder)"
+			},
+			{
 				"command": "snippet-composer.exportSnippets",
 				"title": "Snippet Composer: Export Snippets",
 				"icon": "$(export)"
@@ -91,6 +96,11 @@
 				"command": "snippet-composer._editSnippetFromContextMenu",
 				"title": "Edit Snippet",
 				"icon": "$(edit)"
+			},
+			{
+				"command": "snippet-composer.deleteSnippet",
+				"title": "Delete Snippet",
+				"icon": "$(trash)"
 			},
 			{
 				"command": "snippet-composer.deleteFolder",
@@ -131,6 +141,21 @@
 				"command": "snippet-composer.openSettings",
 				"title": "Snippet Composer: Settings",
 				"icon": "$(gear)"
+			},
+			{
+				"command": "snippet-composer.undoLastSnippetChange",
+				"title": "Snippet Composer: Undo Last Snippet Change",
+				"icon": "$(history)"
+			},
+			{
+				"command": "snippet-composer.importCommunitySnippets",
+				"title": "Snippet Composer: Import Community Snippets",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "snippet-composer.createSnippetFromSelection",
+				"title": "Snippet Composer: Create Snippet from Selected Files",
+				"icon": "$(files)"
 			}
 		],
 		"viewsContainers": {
@@ -151,6 +176,39 @@
 				}
 			]
 		},
+		"walkthroughs": [
+			{
+				"id": "snippetComposer.getStarted",
+				"title": "Get Started with Snippet Composer",
+				"description": "Create, organize, and insert multi-file snippets quickly.",
+				"steps": [
+					{
+						"id": "snippetComposer.stepCreateSnippet",
+						"title": "Create your first snippet",
+						"description": "Use the Snippet Composer view and create a new snippet template.",
+						"media": {
+							"markdown": "[Create New Snippet](command:snippet-composer.createSnippet)"
+						}
+					},
+					{
+						"id": "snippetComposer.stepInsertSnippet",
+						"title": "Insert a snippet into your project",
+						"description": "Pick a snippet and generate files with your variable values.",
+						"media": {
+							"markdown": "[Insert Snippet](command:snippet-composer.insertSnippet)"
+						}
+					},
+					{
+						"id": "snippetComposer.stepOrganize",
+						"title": "Organize snippets into folders",
+						"description": "Create folders/subfolders to keep templates easy to find.",
+						"media": {
+							"markdown": "[Create Folder](command:snippet-composer.createFolder)"
+						}
+					}
+				]
+			}
+		],
 		"menus": {
 			"view/title": [
 				{
@@ -192,6 +250,16 @@
 					"command": "snippet-composer.openSettings",
 					"when": "view == snippetComposerExplorer",
 					"group": "navigation@6"
+				},
+				{
+					"command": "snippet-composer.undoLastSnippetChange",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@7"
+				},
+				{
+					"command": "snippet-composer.importCommunitySnippets",
+					"when": "view == snippetComposerExplorer",
+					"group": "navigation@8"
 				}
 			],
 			"view/item/context": [
@@ -216,6 +284,16 @@
 					"group": "1_modification@3"
 				},
 				{
+					"command": "snippet-composer.deleteSnippet",
+					"when": "viewItem == snippet",
+					"group": "1_modification@4"
+				},
+				{
+					"command": "snippet-composer.createSubfolder",
+					"when": "viewItem == folder",
+					"group": "2_modification@0"
+				},
+				{
 					"command": "snippet-composer.deleteFolder",
 					"when": "viewItem == folder",
 					"group": "2_modification@1"
@@ -231,6 +309,11 @@
 					"command": "snippet-composer.insertSnippetHere",
 					"when": "explorerResourceIsFolder",
 					"group": "7_modification"
+				},
+				{
+					"command": "snippet-composer.createSnippetFromSelection",
+					"when": "resourceScheme == file",
+					"group": "7_modification@1"
 				}
 			]
 		},
@@ -242,10 +325,12 @@
 					"default": "local",
 					"enum": [
 						"local",
+						"workspace",
 						"cloud"
 					],
 					"enumDescriptions": [
 						"Store snippets locally",
+						"Store snippets in the current workspace under .vscode/snippet-composer",
 						"Store snippets in the cloud (uses GitHub Gist)"
 					],
 					"description": "Where to store snippets"
@@ -259,17 +344,45 @@
 					"type": "string",
 					"default": "",
 					"description": "GitHub Gist ID for cloud sync (automatically set after first upload)"
+				},
+				"snippetComposer.postInsertHooks": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"description": "Commands to run in a terminal after snippet insertion (executed in workspace/target folder)."
+				},
+				"snippetComposer.community.indexUrl": {
+					"type": "string",
+					"default": "",
+					"description": "URL of a community snippet index JSON containing snippets and folders."
 				}
 			}
-		}
+		},
+		"keybindings": [
+			{
+				"command": "snippet-composer.insertSnippet",
+				"key": "ctrl+alt+s",
+				"mac": "cmd+alt+s"
+			},
+			{
+				"command": "snippet-composer.createSnippet",
+				"key": "ctrl+alt+n",
+				"mac": "cmd+alt+n"
+			}
+		]
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -p ./",
 		"watch": "tsc -watch -p ./",
-		"lint": "eslint . --ext .ts,.tsx"
+		"lint": "eslint .",
+		"test": "node ./test/run-tests.js"
 	},
 	"devDependencies": {
+		"@eslint/js": "^9.25.1",
+		"@stylistic/eslint-plugin": "^2.13.0",
 		"@types/node": "^16.11.7",
 		"@types/react": "^18.0.0",
 		"@types/react-dom": "^18.0.0",
@@ -277,11 +390,10 @@
 		"@typescript-eslint/eslint-plugin": "^5.30.0",
 		"@typescript-eslint/parser": "^5.30.0",
 		"eslint": "^8.13.0",
-		"typescript": "^4.7.2"
+		"typescript": "^4.7.2",
+		"typescript-eslint": "^8.30.1"
 	},
 	"dependencies": {
-		"monaco-editor": "^0.52.2",
-		"react": "^18.2.0",
-		"react-dom": "^18.2.0"
+		"monaco-editor": "^0.52.2"
 	}
 }

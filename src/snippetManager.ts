@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { builtInFolders, builtInSnippets } from './builtInSnippets';
+import { replaceTemplateVariables } from './variableTransforms';
 
 // Define the snippet structure
 export interface SnippetFile {
@@ -31,22 +32,37 @@ export interface SnippetFolder {
   parentId?: string;
 }
 
+interface SnippetImportData {
+  snippets: Snippet[];
+  folders: SnippetFolder[];
+}
+
+interface SnippetHistoryEntry {
+  timestamp: string;
+  action: 'save' | 'delete';
+  snippet: Snippet;
+}
+
 export class SnippetManager {
   private snippetsStoragePath: string;
   private snippets: Map<string, Snippet>;
   private folders: Map<string, SnippetFolder>;
+  private usageCounts: Map<string, number>;
+  private history: SnippetHistoryEntry[];
   
   constructor(private context: vscode.ExtensionContext) {
-    this.snippetsStoragePath = path.join(context.globalStoragePath, 'snippets');
+    this.snippetsStoragePath = this.resolveStoragePath();
     this.snippets = new Map();
     this.folders = new Map();
+    this.usageCounts = new Map();
+    this.history = [];
     
     // Ensure storage directory exists
     if (!fs.existsSync(this.snippetsStoragePath)) {
       fs.mkdirSync(this.snippetsStoragePath, { recursive: true });
     }
     
-    // Load snippets and folders
+    // Load snippets/folders/usage/history
     this.loadSnippets();
     
     // Check if this is the first run
@@ -60,10 +76,35 @@ export class SnippetManager {
     }
   }
   
+  private resolveStoragePath(): string {
+    const config = vscode.workspace.getConfiguration('snippetComposer');
+    const storageLocation = config.get<'local' | 'workspace' | 'cloud'>('storage.location', 'local');
+    
+    if (storageLocation === 'workspace') {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (workspaceFolder) {
+        return path.join(workspaceFolder.uri.fsPath, '.vscode', 'snippet-composer');
+      }
+      
+      vscode.window.showWarningMessage(
+        'Snippet Composer workspace storage is selected, but no workspace is open. Falling back to local storage.'
+      );
+      return path.join(this.context.globalStoragePath, 'snippets');
+    }
+    
+    if (storageLocation === 'cloud') {
+      return path.join(this.context.globalStoragePath, 'snippets-cloud-cache');
+    }
+    
+    return path.join(this.context.globalStoragePath, 'snippets');
+  }
+  
   private loadSnippets() {
     try {
       const snippetsFile = path.join(this.snippetsStoragePath, 'snippets.json');
       const foldersFile = path.join(this.snippetsStoragePath, 'folders.json');
+      const usageFile = path.join(this.snippetsStoragePath, 'usage.json');
+      const historyFile = path.join(this.snippetsStoragePath, 'history.json');
       
       if (fs.existsSync(snippetsFile)) {
         const data = JSON.parse(fs.readFileSync(snippetsFile, 'utf8'));
@@ -78,6 +119,22 @@ export class SnippetManager {
           this.folders.set(folder.id, folder);
         }
       }
+
+      if (fs.existsSync(usageFile)) {
+        const data = JSON.parse(fs.readFileSync(usageFile, 'utf8')) as Record<string, number>;
+        for (const [snippetId, count] of Object.entries(data)) {
+          if (typeof count === 'number') {
+            this.usageCounts.set(snippetId, count);
+          }
+        }
+      }
+
+      if (fs.existsSync(historyFile)) {
+        const data = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+        if (Array.isArray(data)) {
+          this.history = data.filter(entry => this.isObject(entry)) as SnippetHistoryEntry[];
+        }
+      }
     } catch (error) {
       console.error('Failed to load snippets:', error);
     }
@@ -87,12 +144,84 @@ export class SnippetManager {
     try {
       const snippetsFile = path.join(this.snippetsStoragePath, 'snippets.json');
       const foldersFile = path.join(this.snippetsStoragePath, 'folders.json');
+      const usageFile = path.join(this.snippetsStoragePath, 'usage.json');
+      const historyFile = path.join(this.snippetsStoragePath, 'history.json');
       
       fs.writeFileSync(snippetsFile, JSON.stringify(Array.from(this.snippets.values())));
       fs.writeFileSync(foldersFile, JSON.stringify(Array.from(this.folders.values())));
+      fs.writeFileSync(usageFile, JSON.stringify(Object.fromEntries(this.usageCounts.entries())));
+      fs.writeFileSync(historyFile, JSON.stringify(this.history.slice(0, 50)));
     } catch (error) {
       console.error('Failed to save snippets:', error);
     }
+  }
+
+  private isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
+  private parseImportData(rawData: unknown): SnippetImportData {
+    if (!this.isObject(rawData)) {
+      throw new Error('Import file must be a JSON object.');
+    }
+
+    const snippetsRaw = rawData.snippets;
+    const foldersRaw = rawData.folders;
+
+    if (snippetsRaw !== undefined && !Array.isArray(snippetsRaw)) {
+      throw new Error('"snippets" must be an array.');
+    }
+    if (foldersRaw !== undefined && !Array.isArray(foldersRaw)) {
+      throw new Error('"folders" must be an array.');
+    }
+
+    const snippets: Snippet[] = [];
+    for (const snippet of snippetsRaw ?? []) {
+      if (!this.isObject(snippet)) {
+        continue;
+      }
+
+      if (typeof snippet.id !== 'string' || typeof snippet.name !== 'string') {
+        continue;
+      }
+
+      snippets.push({
+        id: snippet.id,
+        name: snippet.name,
+        description: typeof snippet.description === 'string' ? snippet.description : '',
+        tags: Array.isArray(snippet.tags) ? snippet.tags.filter(tag => typeof tag === 'string') : [],
+        files: Array.isArray(snippet.files)
+          ? snippet.files
+              .filter(file => this.isObject(file))
+              .map(file => ({
+                filename: typeof file.filename === 'string' ? file.filename : 'newfile.txt',
+                path: typeof file.path === 'string' ? file.path : '',
+                content: typeof file.content === 'string' ? file.content : ''
+              }))
+          : [],
+        variables: this.isObject(snippet.variables) ? (snippet.variables as Snippet['variables']) : {},
+        folderId: typeof snippet.folderId === 'string' ? snippet.folderId : undefined
+      });
+    }
+
+    const folders: SnippetFolder[] = [];
+    for (const folder of foldersRaw ?? []) {
+      if (!this.isObject(folder)) {
+        continue;
+      }
+
+      if (typeof folder.id !== 'string' || typeof folder.name !== 'string') {
+        continue;
+      }
+
+      folders.push({
+        id: folder.id,
+        name: folder.name,
+        parentId: typeof folder.parentId === 'string' ? folder.parentId : undefined
+      });
+    }
+
+    return { snippets, folders };
   }
   
   private loadBuiltInSnippets(): void {
@@ -119,6 +248,10 @@ export class SnippetManager {
   async getAllSnippets(): Promise<Snippet[]> {
     return Array.from(this.snippets.values());
   }
+
+  getUsageCounts(): Map<string, number> {
+    return new Map(this.usageCounts);
+  }
   
   async getAllTags(): Promise<string[]> {
     const tagSet = new Set<string>();
@@ -130,33 +263,32 @@ export class SnippetManager {
     return Array.from(tagSet).sort();
   }
   
-  async getSnippet(id: string | any): Promise<Snippet | undefined> {
+  private resolveSnippetId(input: unknown): string | undefined {
+    if (typeof input === 'string') {
+      return input;
+    }
+
+    if (this.isObject(input)) {
+      if (typeof input.id === 'string') {
+        return input.id;
+      }
+      if (this.isObject(input.context) && typeof input.context.id === 'string') {
+        return input.context.id;
+      }
+      if (typeof input._id === 'string') {
+        return input._id;
+      }
+    }
+
+    return undefined;
+  }
+
+  async getSnippet(id: unknown): Promise<Snippet | undefined> {
     try {
-      // Safety check - convert anything to a usable ID
-      let snippetId: string;
-      
-      if (typeof id === 'string') {
-        snippetId = id;
-      } else if (id && typeof id === 'object') {
-        // Log the object structure for debugging
-        console.log('Object passed instead of string ID:', JSON.stringify(id, null, 2));
-        
-        // Try various common properties where the ID might be stored
-        if (id.id) {
-          snippetId = id.id;
-        } else if (id.context && id.context.id) {
-          snippetId = id.context.id;
-        } else if (id._id) {
-          snippetId = id._id;
-        } else {
-          console.error('Could not extract ID from object:', id);
-          return undefined;
-        }
-      } else {
-        console.error('Invalid ID type:', typeof id);
+      const snippetId = this.resolveSnippetId(id);
+      if (!snippetId) {
         return undefined;
       }
-      
       console.log('Retrieving snippet with ID:', snippetId);
       return this.snippets.get(snippetId);
     } catch (error) {
@@ -166,8 +298,77 @@ export class SnippetManager {
   }
   
   async saveSnippet(snippet: Snippet): Promise<void> {
+    const existing = this.snippets.get(snippet.id);
+    if (existing) {
+      this.addHistoryEntry('save', existing);
+    }
     this.snippets.set(snippet.id, snippet);
     this.saveSnippets();
+  }
+
+  async createSnippetFromFiles(fileUris: vscode.Uri[]): Promise<Snippet | undefined> {
+    if (!fileUris.length) {
+      vscode.window.showErrorMessage('No files selected to create snippet from.');
+      return undefined;
+    }
+
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(fileUris[0]);
+    if (!workspaceFolder) {
+      vscode.window.showErrorMessage('Selected files must be inside an open workspace folder.');
+      return undefined;
+    }
+
+    const snippetFiles: SnippetFile[] = [];
+    for (const fileUri of fileUris) {
+      try {
+        const stats = fs.statSync(fileUri.fsPath);
+        if (!stats.isFile()) {
+          continue;
+        }
+
+        const relativePath = path.relative(workspaceFolder.uri.fsPath, fileUri.fsPath);
+        const parsedPath = path.parse(relativePath);
+        const content = fs.readFileSync(fileUri.fsPath, 'utf8');
+
+        snippetFiles.push({
+          filename: parsedPath.base,
+          path: parsedPath.dir === '.' ? '' : parsedPath.dir,
+          content
+        });
+      } catch (error) {
+        console.error('Failed to read selected file:', fileUri.fsPath, error);
+      }
+    }
+
+    if (!snippetFiles.length) {
+      vscode.window.showErrorMessage('Could not read any selected files to build a snippet.');
+      return undefined;
+    }
+
+    const defaultName = snippetFiles.length === 1
+      ? path.parse(snippetFiles[0].filename).name
+      : `Imported Snippet ${new Date().toLocaleDateString()}`;
+
+    const snippetName = await vscode.window.showInputBox({
+      prompt: 'Name for the new snippet',
+      value: defaultName
+    });
+
+    if (!snippetName) {
+      return undefined;
+    }
+
+    const snippet: Snippet = {
+      id: Date.now().toString(),
+      name: snippetName,
+      description: `Created from ${snippetFiles.length} selected file(s)`,
+      tags: ['imported'],
+      files: snippetFiles,
+      variables: {}
+    };
+
+    await this.saveSnippet(snippet);
+    return snippet;
   }
   
   async deleteSnippet(id: string): Promise<boolean> {
@@ -181,6 +382,11 @@ export class SnippetManager {
       console.log('Available snippet IDs:', Array.from(this.snippets.keys()));
       return false;
     }
+
+    const existingSnippet = this.snippets.get(id);
+    if (existingSnippet) {
+      this.addHistoryEntry('delete', existingSnippet);
+    }
     
     const deleted = this.snippets.delete(id);
     console.log('Delete result:', deleted);
@@ -188,6 +394,28 @@ export class SnippetManager {
     
     this.saveSnippets();
     return deleted;
+  }
+
+  private addHistoryEntry(action: 'save' | 'delete', snippet: Snippet): void {
+    this.history.unshift({
+      timestamp: new Date().toISOString(),
+      action,
+      snippet: JSON.parse(JSON.stringify(snippet))
+    });
+    if (this.history.length > 50) {
+      this.history = this.history.slice(0, 50);
+    }
+  }
+
+  async undoLastSnippetChange(): Promise<boolean> {
+    const latest = this.history.shift();
+    if (!latest) {
+      return false;
+    }
+
+    this.snippets.set(latest.snippet.id, latest.snippet);
+    this.saveSnippets();
+    return true;
   }
   
   async getFolders(): Promise<SnippetFolder[]> {
@@ -324,60 +552,6 @@ export class SnippetManager {
         }
       }
       
-      // Prepare files with variable replacements
-      const regex = /\{\{([^|{}]+)(?:\|([^{}]+))?\}\}/g;
-      
-      // Function to process transformations
-      const processTransformation = (match: string, varName: string, transform?: string, value?: string): string => {
-        if (!value && variables[varName] !== undefined) {
-          value = variables[varName];
-        }
-        
-        if (value === undefined) {
-          return match; // No replacement if variable not found
-        }
-        
-        // Apply transformations
-        if (transform) {
-          // Handle empty string edge case
-          if (value === '') {
-            return value;
-          }
-          switch (transform.toLowerCase()) {
-            case 'lowercase':
-              return value.toLowerCase();
-            case 'uppercase':
-              return value.toUpperCase();
-            case 'capitalize':
-              return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
-            case 'camelcase':
-              return value.replace(/(?:^\w|[A-Z]|\b\w)/g, (letter, index) => 
-                index === 0 ? letter.toLowerCase() : letter.toUpperCase()
-              ).replace(/\s+/g, '');
-            case 'snakecase':
-              return value
-                .replace(/([a-z])([A-Z])/g, '$1_$2')
-                .replace(/[\s-]+/g, '_')
-                .toLowerCase();
-            case 'kebabcase':
-              return value
-                .replace(/([a-z])([A-Z])/g, '$1-$2')
-                .replace(/[\s_]+/g, '-')
-                .toLowerCase();
-            case 'pascalcase':
-              return value
-                .replace(/(?:^\w|[A-Z]|\b\w|[\s_-]+\w)/g, (m) => 
-                  m.replace(/[\s_-]/g, '').toUpperCase()
-                )
-                .replace(/[\s_-]+/g, '');
-            default:
-              return value;
-          }
-        }
-        
-        return value;
-      };
-      
       // Process all files and check for existing files
       const processedFiles: Array<{
         filePath: string;
@@ -391,12 +565,9 @@ export class SnippetManager {
       const existingFiles: string[] = [];
       
       for (const file of snippet.files) {
-        let filePath = file.path.replace(regex, (match, varName, transform) => 
-          processTransformation(match, varName, transform));
-        let fileName = file.filename.replace(regex, (match, varName, transform) => 
-          processTransformation(match, varName, transform));
-        let content = file.content.replace(regex, (match, varName, transform) => 
-          processTransformation(match, varName, transform));
+        const filePath = replaceTemplateVariables(file.path, variables);
+        const fileName = replaceTemplateVariables(file.filename, variables);
+        const content = replaceTemplateVariables(file.content, variables);
         
         const fullPath = path.join(workspacePath, filePath);
         const fullFilePath = path.join(fullPath, fileName);
@@ -457,14 +628,55 @@ export class SnippetManager {
       
       // Show success message with details
       let message = `Snippet '${snippet.name}' inserted successfully`;
+      message += ` (${filesCreated} file(s) created`;
       if (filesSkipped > 0) {
-        message += ` (${filesSkipped} file(s) skipped - already existed)`;
+        message += `, ${filesSkipped} file(s) skipped - already existed)`;
+      } else {
+        message += ')';
       }
       vscode.window.showInformationMessage(message);
+      this.usageCounts.set(snippet.id, (this.usageCounts.get(snippet.id) || 0) + 1);
+      this.saveSnippets();
+      await this.runPostInsertHooks(workspacePath);
     } catch (error) {
       console.error('Error in insertSnippet:', error);
       vscode.window.showErrorMessage(`Error inserting snippet: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  private async runPostInsertHooks(cwd: string): Promise<void> {
+    const hooks = vscode.workspace.getConfiguration('snippetComposer').get<string[]>('postInsertHooks', []);
+    if (!hooks || hooks.length === 0) {
+      return;
+    }
+
+    for (const hook of hooks) {
+      const command = hook.trim();
+      if (!command) {
+        continue;
+      }
+
+      const terminal = vscode.window.createTerminal({ name: 'Snippet Composer Hook', cwd });
+      terminal.show(true);
+      terminal.sendText(command);
+    }
+  }
+
+  async importFromMarketplaceIndex(indexUrl: string): Promise<void> {
+    const response = await fetch(indexUrl);
+    if (!response.ok) {
+      throw new Error(`Marketplace index request failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const importData = this.parseImportData(payload);
+    for (const snippet of importData.snippets) {
+      this.snippets.set(snippet.id, snippet);
+    }
+    for (const folder of importData.folders) {
+      this.folders.set(folder.id, folder);
+    }
+    this.saveSnippets();
   }
   
   /**
@@ -480,73 +692,14 @@ export class SnippetManager {
       content: string;
     }> = [];
     
-    const regex = /\{\{([^|{}]+)(?:\|([^{}]+))?\}\}/g;
-    
-    // Function to process transformations
-    const processTransformation = (match: string, varName: string, transform?: string): string => {
-      const value = variables[varName];
-      
-      if (value === undefined) {
-        return match; // No replacement if variable not found
-      }
-      
-      // Apply transformations
-      if (transform) {
-        // Handle empty string edge case
-        if (value === '') {
-          return value;
-        }
-        switch (transform.toLowerCase()) {
-          case 'lowercase':
-            return value.toLowerCase();
-          case 'uppercase':
-            return value.toUpperCase();
-          case 'capitalize':
-            return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
-          case 'camelcase':
-            return value.replace(/(?:^\w|[A-Z]|\b\w)/g, (letter, index) => 
-              index === 0 ? letter.toLowerCase() : letter.toUpperCase()
-            ).replace(/\s+/g, '');
-          case 'snakecase':
-            return value
-              .replace(/([a-z])([A-Z])/g, '$1_$2') // Handle camelCase
-              .replace(/[\s-]+/g, '_') // Replace spaces and hyphens with underscores
-              .toLowerCase();
-          case 'kebabcase':
-            return value
-              .replace(/([a-z])([A-Z])/g, '$1-$2') // Handle camelCase
-              .replace(/[\s_]+/g, '-') // Replace spaces and underscores with hyphens
-              .toLowerCase();
-          case 'pascalcase':
-            return value
-              .replace(/(?:^\w|[A-Z]|\b\w|[\s_-]+\w)/g, (match) => 
-                match.replace(/[\s_-]/g, '').toUpperCase()
-              )
-              .replace(/[\s_-]+/g, '');
-          default:
-            return value;
-        }
-      }
-      
-      return value;
-    };
-    
     for (const file of snippet.files) {
-      let filePath = file.path;
-      let fileName = file.filename;
-      let content = file.content;
-      
-      // Process replacements
-      const processedPath = filePath.replace(regex, (match, varName, transform) => 
-        processTransformation(match, varName, transform));
-      const processedFilename = fileName.replace(regex, (match, varName, transform) => 
-        processTransformation(match, varName, transform));
-      const processedContent = content.replace(regex, (match, varName, transform) => 
-        processTransformation(match, varName, transform));
+      const processedPath = replaceTemplateVariables(file.path, variables);
+      const processedFilename = replaceTemplateVariables(file.filename, variables);
+      const processedContent = replaceTemplateVariables(file.content, variables);
       
       processedFiles.push({
-        originalPath: filePath,
-        originalFilename: fileName,
+        originalPath: file.path,
+        originalFilename: file.filename,
         path: processedPath,
         filename: processedFilename,
         content: processedContent
@@ -567,10 +720,8 @@ export class SnippetManager {
     );
     
     // Get the workspace path for displaying relative paths
-    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-    
     // Generate HTML for the preview
-    let previewHtml = `
+    const previewHtml = `
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -744,7 +895,9 @@ export class SnippetManager {
       
       const disposable = panel.webview.onDidReceiveMessage(
         message => {
-          if (resolved) return;
+          if (resolved) {
+            return;
+          }
           
           if (message.command === 'confirm') {
             resolved = true;
@@ -793,8 +946,9 @@ export class SnippetManager {
     const jsonData = JSON.stringify(exportData, null, 2);
     
     // Show save dialog
+    const defaultExportBase = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
     const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file('snippet-composer-export.json'),
+      defaultUri: vscode.Uri.file(path.join(defaultExportBase, 'snippet-composer-export.json')),
       filters: {
         'JSON Files': ['json']
       }
@@ -807,10 +961,12 @@ export class SnippetManager {
   
   async importSnippets(): Promise<void> {
     // Show open dialog
+    const defaultImportBase = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
     const uris = await vscode.window.showOpenDialog({
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
+      defaultUri: vscode.Uri.file(defaultImportBase),
       filters: {
         'JSON Files': ['json']
       }
@@ -819,23 +975,24 @@ export class SnippetManager {
     if (uris && uris.length > 0) {
       try {
         const jsonData = fs.readFileSync(uris[0].fsPath, 'utf8');
-        const importData = JSON.parse(jsonData);
+        const importData = this.parseImportData(JSON.parse(jsonData));
         
-        if (importData.snippets && Array.isArray(importData.snippets)) {
-          for (const snippet of importData.snippets) {
-            this.snippets.set(snippet.id, snippet);
-          }
+        for (const snippet of importData.snippets) {
+          this.snippets.set(snippet.id, snippet);
         }
         
-        if (importData.folders && Array.isArray(importData.folders)) {
-          for (const folder of importData.folders) {
-            this.folders.set(folder.id, folder);
-          }
+        for (const folder of importData.folders) {
+          this.folders.set(folder.id, folder);
         }
         
         this.saveSnippets();
+        vscode.window.showInformationMessage(
+          `Imported ${importData.snippets.length} snippet(s) and ${importData.folders.length} folder(s).`
+        );
       } catch (error) {
-        vscode.window.showErrorMessage(`Failed to import snippets: ${error}`);
+        vscode.window.showErrorMessage(
+          `Failed to import snippets: ${error instanceof Error ? error.message : 'Invalid import file'}`
+        );
       }
     }
   }
@@ -909,7 +1066,7 @@ export class SnippetManager {
 
       const token = session.accessToken;
       const config = vscode.workspace.getConfiguration('snippetComposer');
-      let gistId = config.get<string>('gist.id', '');
+      const gistId = config.get<string>('gist.id', '');
       
       const exportData = {
         snippets: Array.from(this.snippets.values()),
@@ -1017,39 +1174,38 @@ export class SnippetManager {
         throw new Error('No snippet data found in Gist');
       }
       
-      const importData = JSON.parse(fileContent);
-      
-      // Confirm before overwriting
-      const confirmed = await vscode.window.showWarningMessage(
-        'This will replace all local snippets with the ones from the cloud. Continue?',
+      const parsedData = this.parseImportData(JSON.parse(fileContent));
+
+      // Ask user whether to merge or replace local data
+      const syncMode = await vscode.window.showWarningMessage(
+        'Choose how to apply cloud snippets to your local data.',
         { modal: true },
-        'Yes',
-        'No'
+        'Merge',
+        'Replace',
+        'Cancel'
       );
       
-      if (confirmed !== 'Yes') {
+      if (!syncMode || syncMode === 'Cancel') {
         return;
       }
-      
-      // Clear existing data
-      this.snippets.clear();
-      this.folders.clear();
-      
-      // Import data
-      if (importData.snippets && Array.isArray(importData.snippets)) {
-        for (const snippet of importData.snippets) {
-          this.snippets.set(snippet.id, snippet);
-        }
+
+      if (syncMode === 'Replace') {
+        this.snippets.clear();
+        this.folders.clear();
       }
-      
-      if (importData.folders && Array.isArray(importData.folders)) {
-        for (const folder of importData.folders) {
-          this.folders.set(folder.id, folder);
-        }
+
+      for (const snippet of parsedData.snippets) {
+        this.snippets.set(snippet.id, snippet);
+      }
+
+      for (const folder of parsedData.folders) {
+        this.folders.set(folder.id, folder);
       }
       
       this.saveSnippets();
-      vscode.window.showInformationMessage('Snippets downloaded from GitHub Gist successfully');
+      vscode.window.showInformationMessage(
+        `Cloud sync complete (${syncMode.toLowerCase()}): ${parsedData.snippets.length} snippet(s), ${parsedData.folders.length} folder(s).`
+      );
     } catch (error) {
       console.error('Error downloading from Gist:', error);
       vscode.window.showErrorMessage(`Failed to download from Gist: ${error instanceof Error ? error.message : 'Unknown error'}`);

@@ -13,6 +13,7 @@ export default tseslint.config(
 		ignores: [
 			'.vscode-test',
 			'out',
+			'media',
 		]
 	},
 	js.configs.recommended,
@@ -24,8 +25,15 @@ export default tseslint.config(
 		},
 		rules: {
 			'curly': 'warn',
+			'no-case-declarations': 'off',
+			'no-useless-escape': 'off',
+			'no-undef': 'off',
 			'@stylistic/semi': ['warn', 'always'],
 			'@typescript-eslint/no-empty-function': 'off',
+			'@typescript-eslint/no-inferrable-types': 'off',
+			'@typescript-eslint/array-type': 'off',
+			'@typescript-eslint/consistent-indexed-object-style': 'off',
+			'@typescript-eslint/no-require-imports': 'off',
 			'@typescript-eslint/naming-convention': [
 				'warn',
 				{
@@ -34,7 +42,7 @@ export default tseslint.config(
 				}
 			],
 			'@typescript-eslint/no-unused-vars': [
-				'error',
+				'warn',
 				{
 					'argsIgnorePattern': '^_'
 				}

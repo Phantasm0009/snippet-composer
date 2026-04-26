@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import * as fs from 'fs';
 import { SnippetEditorProvider } from './snippetEditor';
 import { SnippetExplorerProvider } from './snippetExplorer';
@@ -12,6 +11,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Create output channel for logging
   const outputChannel = vscode.window.createOutputChannel('Snippet Composer');
   outputChannel.appendLine('Snippet Composer extension activated');
+  context.subscriptions.push(outputChannel);
   
   // Ensure storage directory exists
   if (!fs.existsSync(context.globalStoragePath)) {
@@ -19,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
   
   // Pre-copy Monaco editor files (async, don't wait)
-  MonacoProvider.ensureMonacoFilesPresent(context);
+  void MonacoProvider.ensureMonacoFilesPresent(context);
   
   // Initialize the snippet manager
   const snippetManager = new SnippetManager(context);
@@ -101,6 +101,22 @@ export function activate(context: vscode.ExtensionContext) {
       
       if (folderName) {
         await snippetManager.createFolder(folderName);
+        snippetExplorerProvider.refresh();
+      }
+    }),
+    
+    vscode.commands.registerCommand('snippet-composer.createSubfolder', async (item) => {
+      if (!item || item.contextValue !== 'folder') {
+        return;
+      }
+      
+      const folderName = await vscode.window.showInputBox({
+        placeHolder: 'Subfolder name',
+        prompt: `Enter a name for a subfolder inside "${item.label}"`
+      });
+      
+      if (folderName) {
+        await snippetManager.createFolder(folderName, item.id);
         snippetExplorerProvider.refresh();
       }
     }),
@@ -195,6 +211,39 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('snippet-composer.editSnippet', id);
       } else {
         vscode.window.showErrorMessage('Could not determine which snippet to edit.');
+      }
+    }),
+    
+    vscode.commands.registerCommand('snippet-composer.deleteSnippet', async (item) => {
+      const snippetId = item?.id || item?.context?.id;
+      if (!snippetId) {
+        vscode.window.showErrorMessage('Could not determine which snippet to delete.');
+        return;
+      }
+      
+      const snippet = await snippetManager.getSnippet(snippetId);
+      if (!snippet) {
+        vscode.window.showErrorMessage('Snippet not found.');
+        return;
+      }
+      
+      const confirmed = await vscode.window.showWarningMessage(
+        `Are you sure you want to delete snippet "${snippet.name}"?`,
+        { modal: true },
+        'Delete',
+        'Cancel'
+      );
+      
+      if (confirmed !== 'Delete') {
+        return;
+      }
+      
+      const deleted = await snippetManager.deleteSnippet(snippetId);
+      if (deleted) {
+        snippetExplorerProvider.refresh();
+        vscode.window.showInformationMessage(`Snippet "${snippet.name}" deleted successfully`);
+      } else {
+        vscode.window.showErrorMessage('Failed to delete snippet.');
       }
     }),
 
@@ -312,22 +361,38 @@ export function activate(context: vscode.ExtensionContext) {
     // Search Snippets
     vscode.commands.registerCommand('snippet-composer.searchSnippets', async () => {
       try {
-        const searchTerm = await vscode.window.showInputBox({
-          prompt: 'Search snippets by name, description, or tags',
-          placeHolder: 'Enter search term (leave empty to show all)'
-        });
-        
-        if (searchTerm === undefined) {
-          return; // User cancelled
-        }
-        
-        snippetExplorerProvider.setFilter(searchTerm);
-        snippetExplorerProvider.refresh();
-        
-        if (searchTerm) {
-          vscode.window.showInformationMessage(`Filtering snippets by: "${searchTerm}". Clear the search to show all.`);
-        } else {
-          vscode.window.showInformationMessage('Showing all snippets');
+        const allSnippets = await snippetManager.getAllSnippets();
+        const usageCounts = snippetManager.getUsageCounts();
+        const selected = await vscode.window.showQuickPick(
+          allSnippets
+            .sort((a, b) => (usageCounts.get(b.id) || 0) - (usageCounts.get(a.id) || 0))
+            .map(snippet => ({
+              label: snippet.name,
+              description: snippet.tags.map(tag => `#${tag}`).join(' '),
+              detail: snippet.description || `${snippet.files.length} file(s)`,
+              snippet
+            })),
+          {
+            placeHolder: 'Search snippets (fuzzy) and press Enter',
+            matchOnDescription: true,
+            matchOnDetail: true
+          }
+        );
+
+        if (selected) {
+          const action = await vscode.window.showQuickPick(
+            [
+              { label: 'Insert', action: 'insert' },
+              { label: 'Edit', action: 'edit' }
+            ],
+            { placeHolder: `What do you want to do with "${selected.snippet.name}"?` }
+          );
+
+          if (action?.action === 'insert') {
+            await snippetManager.insertSnippet(selected.snippet);
+          } else if (action?.action === 'edit') {
+            snippetEditorProvider.openEditor(selected.snippet);
+          }
         }
       } catch (error) {
         console.error('Error searching snippets:', error);
@@ -338,7 +403,16 @@ export function activate(context: vscode.ExtensionContext) {
     // Sync Upload to Gist
     vscode.commands.registerCommand('snippet-composer.syncUpload', async () => {
       try {
-        await snippetManager.uploadToGist();
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Uploading snippets to GitHub Gist',
+            cancellable: false
+          },
+          async () => {
+            await snippetManager.uploadToGist();
+          }
+        );
       } catch (error) {
         console.error('Error uploading to Gist:', error);
         vscode.window.showErrorMessage(`Error uploading: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -348,7 +422,16 @@ export function activate(context: vscode.ExtensionContext) {
     // Sync Download from Gist
     vscode.commands.registerCommand('snippet-composer.syncDownload', async () => {
       try {
-        await snippetManager.downloadFromGist();
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Downloading snippets from GitHub Gist',
+            cancellable: false
+          },
+          async () => {
+            await snippetManager.downloadFromGist();
+          }
+        );
         snippetExplorerProvider.refresh();
       } catch (error) {
         console.error('Error downloading from Gist:', error);
@@ -359,6 +442,67 @@ export function activate(context: vscode.ExtensionContext) {
     // Open Settings
     vscode.commands.registerCommand('snippet-composer.openSettings', () => {
       vscode.commands.executeCommand('workbench.action.openSettings', 'snippet-composer');
+    }),
+
+    vscode.commands.registerCommand('snippet-composer.createSnippetFromSelection', async (resource: vscode.Uri, resources?: vscode.Uri[]) => {
+      try {
+        const selectedUris = resources && resources.length > 0
+          ? resources
+          : resource
+            ? [resource]
+            : [];
+
+        const snippet = await snippetManager.createSnippetFromFiles(selectedUris);
+        if (!snippet) {
+          return;
+        }
+
+        snippetExplorerProvider.refresh();
+        const action = await vscode.window.showInformationMessage(
+          `Created snippet "${snippet.name}" from ${snippet.files.length} file(s).`,
+          'Edit Snippet',
+          'Insert Now'
+        );
+
+        if (action === 'Edit Snippet') {
+          snippetEditorProvider.openEditor(snippet);
+        } else if (action === 'Insert Now') {
+          await snippetManager.insertSnippet(snippet);
+        }
+      } catch (error) {
+        console.error('Error creating snippet from selection:', error);
+        vscode.window.showErrorMessage(
+          `Error creating snippet from selection: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }),
+    vscode.commands.registerCommand('snippet-composer.undoLastSnippetChange', async () => {
+      const didUndo = await snippetManager.undoLastSnippetChange();
+      if (!didUndo) {
+        vscode.window.showInformationMessage('No snippet history to undo.');
+        return;
+      }
+      snippetExplorerProvider.refresh();
+      vscode.window.showInformationMessage('Restored the last saved/deleted snippet state.');
+    }),
+    vscode.commands.registerCommand('snippet-composer.importCommunitySnippets', async () => {
+      const indexUrl = await vscode.window.showInputBox({
+        prompt: 'Marketplace index URL (JSON with snippets/folders)',
+        value: vscode.workspace.getConfiguration('snippetComposer').get<string>('community.indexUrl', '')
+      });
+      if (!indexUrl) {
+        return;
+      }
+
+      try {
+        await snippetManager.importFromMarketplaceIndex(indexUrl);
+        await vscode.workspace.getConfiguration('snippetComposer')
+          .update('community.indexUrl', indexUrl, vscode.ConfigurationTarget.Global);
+        snippetExplorerProvider.refresh();
+        vscode.window.showInformationMessage('Community snippets imported successfully.');
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to import community snippets: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }),
   ];
   

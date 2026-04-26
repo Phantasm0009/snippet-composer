@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { SnippetManager, Snippet, SnippetFolder } from './snippetManager';
+import { SnippetManager } from './snippetManager';
 
 export class SnippetExplorerProvider implements vscode.TreeDataProvider<SnippetTreeItem>, vscode.TreeDragAndDropController<SnippetTreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<SnippetTreeItem | undefined>();
@@ -10,7 +10,7 @@ export class SnippetExplorerProvider implements vscode.TreeDataProvider<SnippetT
   dragMimeTypes = ['application/vnd.code.tree.snippetComposerExplorer'];
 
   // Filter string for search functionality
-  private filterString: string = '';
+  private filterString = '';
 
   constructor(private snippetManager: SnippetManager) {}
 
@@ -66,7 +66,15 @@ export class SnippetExplorerProvider implements vscode.TreeDataProvider<SnippetT
       );
       
       const snippets = await this.snippetManager.getAllSnippets();
+      const usageCounts = this.snippetManager.getUsageCounts();
       let rootSnippets = snippets.filter(s => !s.folderId);
+      rootSnippets = rootSnippets.sort((a, b) => {
+        const countDiff = (usageCounts.get(b.id) || 0) - (usageCounts.get(a.id) || 0);
+        if (countDiff !== 0) {
+          return countDiff;
+        }
+        return a.name.localeCompare(b.name);
+      });
       
       // Apply filter if set
       if (this.filterString) {
@@ -115,7 +123,15 @@ export class SnippetExplorerProvider implements vscode.TreeDataProvider<SnippetT
       );
       
       const snippets = await this.snippetManager.getAllSnippets();
+      const usageCounts = this.snippetManager.getUsageCounts();
       const folderSnippets = snippets.filter(s => s.folderId === folderId);
+      folderSnippets.sort((a, b) => {
+        const countDiff = (usageCounts.get(b.id) || 0) - (usageCounts.get(a.id) || 0);
+        if (countDiff !== 0) {
+          return countDiff;
+        }
+        return a.name.localeCompare(b.name);
+      });
       
       const snippetItems = folderSnippets.map(snippet => 
         new SnippetTreeItem(
@@ -170,12 +186,12 @@ export class SnippetExplorerProvider implements vscode.TreeDataProvider<SnippetT
   }
 
   // Handle drag operations
-  async handleDrag(source: SnippetTreeItem[], dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): Promise<void> {
+  async handleDrag(source: SnippetTreeItem[], dataTransfer: vscode.DataTransfer, _token: vscode.CancellationToken): Promise<void> {
     dataTransfer.set('application/vnd.code.tree.snippetComposerExplorer', new vscode.DataTransferItem(source));
   }
 
   // Handle drop operations
-  async handleDrop(target: SnippetTreeItem | undefined, dataTransfer: vscode.DataTransfer, token: vscode.CancellationToken): Promise<void> {
+  async handleDrop(target: SnippetTreeItem | undefined, dataTransfer: vscode.DataTransfer, _token: vscode.CancellationToken): Promise<void> {
     const transferItem = dataTransfer.get('application/vnd.code.tree.snippetComposerExplorer');
     if (!transferItem) {
       return;
@@ -239,10 +255,10 @@ class SnippetTreeItem extends vscode.TreeItem {
       this.tooltip = description || label;
       this.description = description || '';
       
-      // Make clicking on the snippet directly insert it
+      // Make clicking on the snippet open edit mode
       this.command = {
-        command: 'snippet-composer.insertSnippet',
-        title: 'Insert Snippet',
+        command: 'snippet-composer.editSnippet',
+        title: 'Edit Snippet',
         arguments: [context.id] // Only pass the ID string, not an object
       };
       
