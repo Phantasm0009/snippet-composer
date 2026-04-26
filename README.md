@@ -24,6 +24,14 @@ Define custom variables with default values and optional flags to make your snip
 - `{{ComponentName|snakecase}}` - Convert to snake_case (e.g., `MyComponent` → `my_component`)
 - `{{ComponentName|kebabcase}}` - Convert to kebab-case (e.g., `MyComponent` → `my-component`)
 - `{{ComponentName|pascalcase}}` - Convert to PascalCase (e.g., `my component` → `MyComponent`)
+- `{{ComponentName|titlecase}}` - Convert to Title Case
+- `{{ComponentName|dotcase}}` - Convert to dot.case
+- `{{ComponentName|pathcase}}` - Convert to path/case
+- `{{Resource|pluralize}}` - Convert to plural form
+- `{{Resources|singularize}}` - Convert to singular form
+
+Use conditional blocks for optional content:
+- `{{#if VariableName}} ... {{/if}}`
 
 ### Visual Editor
 No more hand-editing JSON files! Our intuitive editor provides syntax highlighting, auto-completion, and real-time preview with theme-aware Monaco editor.
@@ -33,9 +41,10 @@ No more hand-editing JSON files! Our intuitive editor provides syntax highlighti
 ### Organized Management
 - 📂 Folder organization with nested subfolders
 - 🏷️ Tag-based filtering with auto-complete suggestions
-- 🔍 Fast search capabilities with snippet filtering
+- 🔍 Quick fuzzy search (Insert or Edit directly)
 - 🔄 Drag-and-drop reordering of files within snippets
-- ⌨️ Keyboard shortcuts (Ctrl/Cmd+S to save)
+- ⌨️ Keyboard shortcuts (`Ctrl/Cmd+S` save, `Ctrl/Cmd+Alt+S` insert, `Ctrl/Cmd+Alt+N` create)
+- ♻️ Undo last snippet save/delete from toolbar command
 
 ### Multi-Root Workspace Support
 When working with multiple workspace folders, Snippet Composer lets you:
@@ -52,7 +61,16 @@ Before creating files, you'll be warned if files already exist with options to:
 Sync your snippets across devices using GitHub Gist:
 1. Authenticate with GitHub
 2. Use "Upload to Gist" to save your snippets
-3. Use "Download from Gist" on other devices
+3. Use "Download from Gist" on other devices (Merge or Replace)
+
+### Workspace + Local Storage
+Choose where snippets are stored:
+- `local` (default): extension global storage
+- `workspace`: `.vscode/snippet-composer` in the current project
+- `cloud`: local cache with GitHub Gist sync commands
+
+### Snippet Creation from Existing Files
+Right-click selected files in Explorer and generate a new snippet from them instantly.
 
 ### Built-in Snippet Library
 Get started immediately with pre-made snippets for popular frameworks and languages:
@@ -90,16 +108,19 @@ code --install-extension Phantasm.snippet-composer
 ### Managing folders:
 1. Right-click on any folder in the Snippets Explorer
 2. Use "Rename Folder" or "Delete Folder" options
-3. Drag and drop snippets between folders to reorganize
+3. Use "Create Subfolder" for nested structure
+4. Drag and drop snippets between folders to reorganize
 
 ## ⚙️ Configuration
 
 ### Customize Snippet Composer through VS Code settings:
 ```json
 {
-  "snippetComposer.storage.location": "local", // Where to store snippets: "local" or "cloud"
+  "snippetComposer.storage.location": "local", // "local" | "workspace" | "cloud"
   "snippetComposer.author": "Your Name",       // Default author name for snippets
-  "snippetComposer.gist.id": ""                // GitHub Gist ID for cloud sync (auto-set)
+  "snippetComposer.gist.id": "",               // GitHub Gist ID for cloud sync (auto-set)
+  "snippetComposer.postInsertHooks": [],       // Optional commands to run after insertion
+  "snippetComposer.community.indexUrl": ""     // Optional community index URL for snippet import
 }
 ```
 
@@ -136,6 +157,7 @@ Share snippets with your team or across devices:
 1. Click "Export Snippets" in the explorer view
 2. Save the JSON file
 3. On another device, click "Import Snippets"
+4. Or import community snippets from a shared JSON index URL
 
 Snippet Organization:
 
@@ -154,40 +176,25 @@ Snippet Organization:
 | Sharing               | Manual           | Import/Export    |
 | Preview               | ❌               | ✅               |
 
-### 🤝 Contributing
-
-Contributions are welcome! Check out our contributing guidelines to get started.
-
 ### 📣 Support
 * [Report Issues](https://github.com/Phantasm0009/snippet-composer/issues)
 
 ### 📝 Release Notes
 
-### 1.1.0 (Latest)
-* **New Variable Transformations:** Added `snakecase`, `kebabcase`, and `pascalcase` transformations
-* **Variable Default Values:** Variables can now have default values and be marked as optional
-* **Multi-Root Workspace Support:** Select target folder when inserting snippets in multi-root workspaces
-* **Explorer Context Menu:** Right-click folders in Explorer to "Insert Snippet Here"
-* **File Overwrite Protection:** Warning when files already exist with Overwrite/Skip/Cancel options
-* **Drag-and-Drop File Reordering:** Reorder files within snippets by dragging
-* **Tag Auto-Complete:** Suggestions from existing tags when adding new tags
-* **Keyboard Shortcuts:** Ctrl/Cmd+S to save in snippet editor
-* **Theme-Aware Monaco Editor:** Editor adapts to VS Code's light/dark theme
-* **Search/Filter Snippets:** Search command in tree view toolbar to filter snippets
-* **Duplicate Snippet:** Context menu action to clone snippets
-* **Export Single Snippet:** Export individual snippets to JSON
-* **GitHub Gist Sync:** Upload/download snippets to GitHub Gist for cloud sync
+### 1.2.0 (Latest)
+* Workspace storage mode (`.vscode/snippet-composer`) and cloud cache mode
+* Fixed file reorder drag-and-drop in Edit Snippet -> Files
+* Added snippet delete in tree context menu and undo last snippet change
+* Added snippet creation from selected files in Explorer
+* Added new transforms: `pluralize`, `singularize`, `titlecase`, `dotcase`, `pathcase`
+* Added conditional template blocks (`{{#if Variable}} ... {{/if}}`)
+* Added fuzzy snippet quick search flow (Insert/Edit)
+* Added keyboard shortcuts for insert/create commands
+* Added progress UI for Gist sync and merge/replace download strategy
+* Added onboarding walkthrough and CHANGELOG support
+* Reduced Monaco copy footprint to only required `min` assets
 
-### 1.0.1
-* Bug fixes and stability improvements
-
-### 1.0.0
-* Initial release
-* Multi-file snippet support
-* Variable system with transformations
-* Visual editor with syntax highlighting
-* Folder organization
-* Built-in snippet library
+For full historical changes, see `CHANGELOG.md`.
 
 ### 📜 License
 MIT © Aditya Tiwari
